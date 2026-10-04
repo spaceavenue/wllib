@@ -2,7 +2,7 @@
 name = "wllib"
 version = "0.1.0"
 edition = "2024"
-description = "shared Wayland library"
+description = "shared Wayland library used by my other projects."
 
 [dependencies]
 libc = { version = "0.2.186", default-features = false }
