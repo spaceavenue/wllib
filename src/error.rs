@@ -20,6 +20,29 @@ impl SysError {
     let errno = unsafe { *libc::__errno_location() };
     Self { call, errno }
   }
+  #[must_use]
+  pub fn from_errno(call: &'static str, err: rustix::io::Errno) -> Self {
+    Self {
+      call,
+      errno: err.raw_os_error(),
+    }
+  }
+}
+
+pub trait SysResultExt<T> {
+  fn syserr(self, call: &'static str) -> Result<T, WireError>;
+}
+
+impl<T> SysResultExt<T> for Result<T, rustix::io::Errno> {
+  #[inline]
+  fn syserr(self, call: &'static str) -> Result<T, WireError> {
+    self.map_err(|e| {
+      WireError::Sys(SysError {
+        call,
+        errno: e.raw_os_error(),
+      })
+    })
+  }
 }
 
 /// Max length of a message body we'll keep for diagnostics. Longer messages are truncated rather

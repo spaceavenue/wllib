@@ -1,15 +1,4 @@
 //! `getopt_long` bindings.
-//!
-//! `optarg`/`optind` already needed hand-declaring directly (as raw `extern "C" { static ... }`
-//! items) in every binary that uses plain `getopt`, rather than being reliably available through
-//! the `libc` crate for the musl target. Declaring `getopt_long` and its `option` struct the same
-//! way sidesteps that same uncertainty for this function, rather than hoping it happens to be
-//! bound.
-//!
-//! `getopt_long` is used with `flag` always `NULL` and `val` set to the short-option-equivalent
-//! character, so it returns the exact same code for `-f` and `--fill` alike. Thus, a binary's
-//! existing `match c as u8 as char { ... }` block handles both forms completely unchanged and only
-//! the call itself and a small options table need to be added.
 
 #[repr(C)]
 pub struct LongOption {

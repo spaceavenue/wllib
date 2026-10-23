@@ -76,13 +76,7 @@ pub fn crawl<H: GlobalHandler + EventHandler>(
         return Ok(());
       } else {
         // any other event can show up here interleaved with registry/sync traffic in the same
-        // recv() batch: `on_global` binds reactively as each `wl_registry::global` is parsed, and
-        // some interfaces (like `wl_output`) fire a burst of events unprompted right after bind
-        // with no request needed to trigger them. `sync` only orders requests sent *before* it, and
-        // these bind() calls are sent *after* sync already went out, so there's no guarantee the
-        // compositor's reply to a reactive bind lands after the sync `done` marker. forward it to
-        // the same `EventHandler` the caller already needs to define for post-crawl runtime
-        // dispatch.
+        // recv() batch. forward it to the `EventHandler` the caller already defines for dispatch.
         let event_data = &data[idx + 8..idx + header.size as usize];
         handler.handle_event(conn, header.sender, header.opcode, event_data);
       }

@@ -132,32 +132,32 @@ impl<const N: usize> StringOnStack<N> {
     self.buf.as_ptr().cast::<libc::c_char>()
   }
 
-  /// View as a borrowed `CStr`. Always safe and O(1) due to the trailing NUL invariant.
+  /// View as a borrowed `CStr`. Always safe and guaranteed to terminate at the first NUL byte.
   #[must_use]
   pub fn as_c_str(&self) -> &CStr {
     if N == 0 {
       c""
     } else {
-      // SAFETY: self.buf is of length N and self.buf[self.len] is guaranteed to be 0.
-      unsafe { CStr::from_bytes_with_nul_unchecked(&self.buf[..=self.len]) }
+      match CStr::from_bytes_until_nul(&self.buf[..=self.len]) {
+        Ok(s) => s,
+        Err(_) => c"",
+      }
     }
   }
 
   /// Push a string slice, silently truncating at character boundaries if capacity is exceeded.
   pub fn push_str(&mut self, s: &str) -> &mut Self {
     let space = self.remaining_capacity();
-    // start from the largest byte count that could possibly fit, then walk backwards to the
-    // nearest char boundary. `s` is a valid `&str` already, so `n` bytes of it are only safe to
-    // copy verbatim if `n` doesn't stop in the middle of a multi-byte UTF-8 sequence.
-    // `is_char_boundary` is O(1) (just checks whether byte `n` is a continuation byte), so this
-    // walk is bounded by at most 3 steps back (the longest UTF-8 sequence is 4 bytes).
-    let mut n = s.len().min(space);
+    let s_bytes = s.as_bytes();
+
+    let content_len = s_bytes.iter().position(|&b| b == 0).unwrap_or(s.len());
+    let mut n = content_len.min(space);
     while !s.is_char_boundary(n) {
       n -= 1;
     }
 
     if n > 0 {
-      self.buf[self.len..self.len + n].copy_from_slice(&s.as_bytes()[..n]);
+      self.buf[self.len..self.len + n].copy_from_slice(&s_bytes[..n]);
       self.len += n;
       if self.len < N {
         self.buf[self.len] = 0; // Maintain NUL invariant
@@ -175,18 +175,10 @@ impl<const N: usize> StringOnStack<N> {
       return self;
     }
 
-    // unlike `push_str`, the source here is an arbitrary `&[u8]` (a C string's content has no
-    // UTF-8 guarantee at all), so this can't just walk backwards from a byte count the way
-    //`push_str` does; it has to actually validate. `space`-truncate first, purely to keep
-    // `from_utf8` from doing wasted work validating bytes we could never store anyway.
     let bytes = s.to_bytes();
     let max_len = bytes.len().min(space);
     let slice = &bytes[..max_len];
 
-    // `from_utf8` on the slice either says it's all valid, or hands back exactly how many leading
-    // bytes *were* valid before the first bad byte. `valid_up_to()` is precisely the boundary
-    // `push_str`'s `is_char_boundary` walk computes by hand, just derived from validation instead
-    // of backing off a known-good string.
     let n = match str::from_utf8(slice) {
       Ok(valid) => valid.len(),
       Err(err) => err.valid_up_to(),
@@ -224,10 +216,6 @@ impl<const N: usize> StringOnStack<N> {
     }
     let mut tmp = [0u8; 20]; // u64::MAX is 20 decimal digits
 
-    // digits come out of `num % 10` least-significant-first, but the formatted string needs
-    // them most-significant-first. rather than building forward and reversing, `idx` walks
-    // `tmp` backwards from the end so the digits land in the right order the first time and
-    // `&tmp[idx..]` is already the correctly-ordered string once the loop stops.
     let mut idx = 20;
     while num > 0 {
       idx -= 1;
@@ -263,6 +251,22 @@ impl<const N: usize> StringOnStack<N> {
   pub fn push<T: FmtLite>(&mut self, value: T) -> &mut Self {
     value.format_into(self);
     self
+  }
+}
+
+impl<const N: usize> core::ops::Deref for StringOnStack<N> {
+  type Target = str;
+
+  #[inline]
+  fn deref(&self) -> &str {
+    self.as_str()
+  }
+}
+
+impl<const N: usize> core::ops::DerefMut for StringOnStack<N> {
+  #[inline]
+  fn deref_mut(&mut self) -> &mut str {
+    self.as_mut_str()
   }
 }
 

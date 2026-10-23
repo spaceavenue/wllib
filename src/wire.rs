@@ -10,15 +10,17 @@
 /// Read a `u32` argument at `idx`. Returns 0 if `idx` is out of range rather than panicking, since
 /// wire data is untrusted input and this crate has no allocator to build a proper error path around
 /// every 4-byte read.
+
 #[must_use]
 pub fn read_u32(buf: &[u8], idx: usize) -> u32 {
-  if idx + 4 <= buf.len() {
-    let mut bytes = [0u8; 4];
-    bytes.copy_from_slice(&buf[idx..idx + 4]);
-    u32::from_ne_bytes(bytes)
-  } else {
-    0
-  }
+  let Some(tail) = buf.get(idx..) else {
+    return 0;
+  };
+  let Some(&bytes) = tail.first_chunk::<4>() else {
+    return 0;
+  };
+
+  u32::from_ne_bytes(bytes)
 }
 
 /// Reads a u32 and returns it as an i32.
@@ -52,13 +54,17 @@ pub fn read_str(buf: &[u8], idx: usize) -> Option<(&str, usize)> {
   if str_len == 0 {
     return None;
   }
-  let start = idx + 4;
-  if start + str_len > buf.len() {
+  let start = idx.checked_add(4)?;
+  let padded = (str_len.checked_add(3)?) & !3;
+  let total = 4usize.checked_add(padded)?;
+  if idx.checked_add(total)? > buf.len() {
     return None;
   }
-  let content = core::str::from_utf8(&buf[start..start + str_len - 1]).ok()?;
-  let padded = (str_len + 3) & !3;
-  Some((content, 4 + padded))
+  if *buf.get(start + str_len - 1)? != 0 {
+    return None;
+  }
+  let content = core::str::from_utf8(buf.get(start..start + str_len - 1)?).ok()?;
+  Some((content, total))
 }
 
 /// 8-byte message header.
@@ -150,67 +156,59 @@ impl Message {
     self.data[6..8].copy_from_slice(&self.header.size.to_ne_bytes());
   }
 
-  pub fn write_u32(&mut self, val: u32) {
-    if self.header.size + 4 <= self.data.len() as u16 {
-      self.data[self.header.size as usize..self.header.size as usize + 4]
-        .copy_from_slice(&val.to_ne_bytes());
-      self.header.size += 4;
-      self.sync_size();
+  pub fn write_u32(&mut self, val: u32) -> bool {
+    let current = self.header.size as usize;
+    if current + 4 > self.data.len() {
+      return false;
     }
+    self.data[current..current + 4].copy_from_slice(&val.to_ne_bytes());
+    self.header.size += 4;
+    self.sync_size();
+    true
   }
 
-  pub fn write_i32(&mut self, val: i32) {
-    self.write_u32(val as u32);
+  pub fn write_i32(&mut self, val: i32) -> bool {
+    self.write_u32(val as u32)
   }
 
   /// Write a `string` argument from a `&str`.
-  ///
-  /// Wire format (see the module doc comment): a `u32` length prefix that counts the trailing NUL
-  /// as part of the string's length, then that many content bytes including the NUL, then padding
-  /// out to a 4-byte boundary. `s` (a `&str`) doesn't carry its own NUL, so the `+1` on `s_len`
-  /// accounts for the one this method adds itself just below.
-  pub fn write_str(&mut self, s: &str) {
-    let s_len = (s.len() + 1) as u32;
+  pub fn write_str(&mut self, s: &str) -> bool {
+    let s_len = s.len() + 1;
+    let padded = (s_len + 3) & !3;
+    let needed = 4 + padded;
 
-    self.write_u32(s_len);
-
-    let actual_len = s.len();
-    let start = self.header.size as usize;
-    // `<` rather than `<=`: `actual_len` bytes of content need one more byte after them for the
-    // NUL this writes at `start + actual_len`, so the check must leave room for content *and*
-    // that terminator, not just the content.
-    if self.header.size + (actual_len as u16) < self.data.len() as u16 {
-      self.data[start..start + actual_len].copy_from_slice(s.as_bytes());
-      self.data[start + actual_len] = 0;
-      // `+ 1` here for the NUL just written.
-      self.header.size += actual_len as u16 + 1;
-      // pad to 4-byte boundary.
-      self.header.size = (self.header.size + 3) & !3;
-      self.sync_size();
+    let current = self.header.size as usize;
+    if current + needed > self.data.len() {
+      return false;
     }
+
+    self.data[current..current + 4].copy_from_slice(&(s_len as u32).to_ne_bytes());
+    self.data[current + 4..current + 4 + s.len()].copy_from_slice(s.as_bytes());
+    self.data[current + 4 + s.len()..current + needed].fill(0);
+
+    self.header.size += needed as u16;
+    self.sync_size();
+    true
   }
 
-  /// Write a `string` argument from a raw NUL-terminated C string pointer (e.g. `optarg`, or a
-  /// `c"..."` literal).
-  pub fn write_cstr(&mut self, s: &core::ffi::CStr) {
-    // unlike `write_str`, `to_bytes_with_nul()` already includes the terminator in both the slice
-    // and its length. so, nothing here needs a manual `+1` anywhere. `len` is already the full
-    // on-wire byte count for the length prefix.
+  /// Write a `string` argument from a `&CStr`.
+  pub fn write_cstr(&mut self, s: &core::ffi::CStr) -> bool {
     let bytes = s.to_bytes_with_nul();
-    let len = bytes.len() as u16;
+    let padded = (bytes.len() + 3) & !3;
+    let needed = 4 + padded;
 
-    self.write_u32(u32::from(len));
-
-    // `<` here has the same room-for-everything reasoning as `write_str`'s check, except `len`
-    // already covers the NUL (see above), so there's no separate `+1` needed on this side either.
-    if self.header.size + len < self.data.len() as u16 {
-      self.data[self.header.size as usize..(self.header.size + len) as usize]
-        .copy_from_slice(bytes);
-      self.header.size += len;
-      // pad to 4-byte boundary, same as write_str.
-      self.header.size = (self.header.size + 3) & !3;
-      self.sync_size();
+    let current = self.header.size as usize;
+    if current + needed > self.data.len() {
+      return false;
     }
+
+    self.data[current..current + 4].copy_from_slice(&(bytes.len() as u32).to_ne_bytes());
+    self.data[current + 4..current + 4 + bytes.len()].copy_from_slice(bytes);
+    self.data[current + 4 + bytes.len()..current + needed].fill(0);
+
+    self.header.size += needed as u16;
+    self.sync_size();
+    true
   }
 
   #[must_use]
