@@ -18,6 +18,7 @@ pub struct SysError {
   pub call: &'static str,
   pub errno: i32,
 }
+
 impl SysError {
   /// Capture the current `errno`, tagged with the name of the call that just failed. Called
   /// immediately after the failing libc call, before any other libc calls can clobber errno.

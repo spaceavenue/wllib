@@ -24,21 +24,13 @@ pub fn write_fd<Fd: AsFd>(
   // truncate once up front so every iteration below can just trust `msg.len()`
   let mut msg = &msg[..len];
   while !msg.is_empty() {
-    let res = write(fd.as_fd(), msg).map_err(|e| SysError::from_errno("write", e))?;
-    match res {
-      0 => break,
-      res if res > 0 => {
-        // the kernel accepted fewer bytes than asked, retry
-        msg = &msg[res..];
-      }
-      _ => {
-        let err = SysError::last("write");
-        if err.errno == Errno::INTR.raw_os_error() {
-          continue;
-        }
-        return Err(err);
-      }
-    }
+    let res = match write(fd.as_fd(), msg) {
+      Ok(0) => break,
+      Ok(n) => n,
+      Err(Errno::INTR) => continue,
+      Err(err) => return Err(SysError::from_errno("write", err)),
+    };
+    msg = &msg[res..];
   }
   Ok(())
 }

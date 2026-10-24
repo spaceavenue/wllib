@@ -1,6 +1,5 @@
 //! Socket connection and id allocation.
 
-use core::ffi::c_char;
 use core::mem::MaybeUninit;
 
 use rustix::cmsg_space;
@@ -12,6 +11,7 @@ use rustix::net::{
   sendmsg, socket_with,
 };
 
+use crate::env::get_env;
 use crate::error::{SysError, SysResultExt, WireError};
 use crate::fmt_lite::StringOnStack;
 use crate::wire::{Message, complete_message_len};
@@ -21,9 +21,8 @@ use crate::wire::{Message, complete_message_len};
 /// never exceed what was read into that buffer in the first place.
 const RECV_CARRY_CAP: usize = 4096;
 
-unsafe extern "C" {
-  fn getenv(name: *const c_char) -> *mut c_char;
-}
+/// The default path/socket name to use in case `WAYLAND_DISPLAY` is unset.
+const DEFAULT_SOCK: &'static str = "wayland-0";
 
 pub struct Connection {
   socket_fd: OwnedFd,
@@ -35,30 +34,29 @@ pub struct Connection {
 impl Connection {
   /// Connect to the Wayland socket.
   pub fn connect() -> Result<Self, WireError> {
-    let display_env = unsafe { getenv(c"WAYLAND_DISPLAY".as_ptr().cast::<c_char>()) };
-    let runtime_env = unsafe { getenv(c"XDG_RUNTIME_DIR".as_ptr().cast::<c_char>()) };
+    let mut display = StringOnStack::<64>::new();
+    let mut runtime = StringOnStack::<64>::new();
+    let mut path = StringOnStack::<128>::new();
 
-    let mut path = StringOnStack::<108>::new();
-
-    if runtime_env.is_null() {
-      return Err(WireError::Environment);
-    }
-
-    let display_cstr = if display_env.is_null() {
-      c"wayland-0"
+    let found_display = get_env("WAYLAND_DISPLAY", &mut display);
+    let found_runtime = get_env("XDG_RUNTIME_DIR", &mut runtime);
+    let display_str = if found_display {
+      &display
     } else {
-      unsafe { core::ffi::CStr::from_ptr(display_env) }
+      DEFAULT_SOCK
     };
 
-    if display_cstr.to_bytes().starts_with(b"/") {
-      path.push(display_cstr);
+    if display_str.starts_with("/") {
+      path.push(display_str);
     } else {
-      let runtime_cstr = unsafe { core::ffi::CStr::from_ptr(runtime_env) };
-      path.push(runtime_cstr);
-      if !path.as_str().ends_with('/') {
+      if !found_runtime {
+        return Err(WireError::Environment);
+      }
+      path.push(runtime);
+      if !&path.ends_with('/') {
         path.push("/");
       }
-      path.push(display_cstr);
+      path.push(display_str);
     }
 
     let addr = SocketAddrUnix::new(path.as_c_str()).map_err(|_| WireError::Environment)?;

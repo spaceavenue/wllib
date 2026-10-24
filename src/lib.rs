@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod dispatch;
+pub mod env;
 pub mod error;
 pub mod fmt_lite;
 pub mod io;
