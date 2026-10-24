@@ -1,8 +1,14 @@
 //! Error types for the transport/protocol layer.
 
+use core::ffi::c_int;
+
 use crate::fmt_lite::StringOnStack;
 use crate::io::write_stderr;
 use crate::wire::{read_str, read_u32};
+
+unsafe extern "C" {
+  fn __errno_location() -> *mut c_int;
+}
 
 /// A failed libc call, captured with `errno` at the point of failure.
 ///
@@ -17,7 +23,7 @@ impl SysError {
   /// immediately after the failing libc call, before any other libc calls can clobber errno.
   #[must_use]
   pub fn last(call: &'static str) -> Self {
-    let errno = unsafe { *libc::__errno_location() };
+    let errno = unsafe { *__errno_location() };
     Self { call, errno }
   }
   #[must_use]

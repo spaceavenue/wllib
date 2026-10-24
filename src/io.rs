@@ -1,7 +1,7 @@
 //! File-descriptor write helpers.
 
 use rustix::fd::AsFd;
-use rustix::io::write;
+use rustix::io::{Errno, write};
 use rustix::stdio;
 
 use crate::error::SysError;
@@ -10,7 +10,11 @@ use crate::error::SysError;
 /// been written or a real error occurs.
 ///
 /// `count` optionally caps how many bytes are written. `None` implies writing all bytes.
-pub fn write_fd<Fd: AsFd>(fd: Fd, msg: impl AsRef<[u8]>, count: Option<usize>) -> Result<(), SysError> {
+pub fn write_fd<Fd: AsFd>(
+  fd: Fd,
+  msg: impl AsRef<[u8]>,
+  count: Option<usize>,
+) -> Result<(), SysError> {
   let msg = msg.as_ref();
   let len = match count {
     Some(c) => c.min(msg.len()),
@@ -29,7 +33,7 @@ pub fn write_fd<Fd: AsFd>(fd: Fd, msg: impl AsRef<[u8]>, count: Option<usize>) -
       }
       _ => {
         let err = SysError::last("write");
-        if err.errno == libc::EINTR {
+        if err.errno == Errno::INTR.raw_os_error() {
           continue;
         }
         return Err(err);

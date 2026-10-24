@@ -1,9 +1,10 @@
 //! Socket connection and id allocation.
 
+use core::ffi::c_char;
 use core::mem::MaybeUninit;
 
 use rustix::cmsg_space;
-use rustix::fd::{AsFd, AsRawFd, OwnedFd};
+use rustix::fd::{AsFd, AsRawFd, OwnedFd, RawFd};
 use rustix::io::{IoSlice, IoSliceMut};
 use rustix::net::{
   AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer,
@@ -20,6 +21,10 @@ use crate::wire::{Message, complete_message_len};
 /// never exceed what was read into that buffer in the first place.
 const RECV_CARRY_CAP: usize = 4096;
 
+unsafe extern "C" {
+  fn getenv(name: *const c_char) -> *mut c_char;
+}
+
 pub struct Connection {
   socket_fd: OwnedFd,
   next_id: u32,
@@ -30,8 +35,8 @@ pub struct Connection {
 impl Connection {
   /// Connect to the Wayland socket.
   pub fn connect() -> Result<Self, WireError> {
-    let display_env = unsafe { libc::getenv(c"WAYLAND_DISPLAY".as_ptr().cast::<libc::c_char>()) };
-    let runtime_env = unsafe { libc::getenv(c"XDG_RUNTIME_DIR".as_ptr().cast::<libc::c_char>()) };
+    let display_env = unsafe { getenv(c"WAYLAND_DISPLAY".as_ptr().cast::<c_char>()) };
+    let runtime_env = unsafe { getenv(c"XDG_RUNTIME_DIR".as_ptr().cast::<c_char>()) };
 
     let mut path = StringOnStack::<108>::new();
 
@@ -50,7 +55,7 @@ impl Connection {
     } else {
       let runtime_cstr = unsafe { core::ffi::CStr::from_ptr(runtime_env) };
       path.push(runtime_cstr);
-      if !path.as_str().ends_with("/") {
+      if !path.as_str().ends_with('/') {
         path.push("/");
       }
       path.push(display_cstr);
@@ -76,7 +81,8 @@ impl Connection {
     })
   }
 
-  pub fn as_raw_fd(&self) -> libc::c_int {
+  #[must_use]
+  pub fn as_raw_fd(&self) -> RawFd {
     self.socket_fd.as_raw_fd()
   }
 

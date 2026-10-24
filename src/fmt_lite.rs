@@ -2,7 +2,7 @@
 //! stack-allocated string builder ([`StringOnStack`]) and the [`FmtLite`] trait it's built
 //! around.
 
-use core::ffi::CStr;
+use core::ffi::{CStr, c_char};
 
 /// Lightweight formatter trait in absence of `core::fmt`.
 pub trait FmtLite {
@@ -128,8 +128,8 @@ impl<const N: usize> StringOnStack<N> {
   /// Return a raw pointer to the C string representation.
   /// Guaranteed to be NUL-terminated at all times.
   #[must_use]
-  pub fn as_ptr(&self) -> *const libc::c_char {
-    self.buf.as_ptr().cast::<libc::c_char>()
+  pub fn as_ptr(&self) -> *const c_char {
+    self.buf.as_ptr().cast::<c_char>()
   }
 
   /// View as a borrowed `CStr`. Always safe and guaranteed to terminate at the first NUL byte.

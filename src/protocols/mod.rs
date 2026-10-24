@@ -5,8 +5,8 @@
 //! Every constant here was cross-checked against the upstream protocol XML rather than
 //! transcribed from memory:
 //! - core interfaces: <https://github.com/wayland-mirror/wayland> `protocol/wayland.xml`
-//! - wlr-* extensions (wlr-layer-shell, wlr-gamma-control, wlr-data-control):
-//!   <https://github.com/swaywm/wlr-protocols> `unstable/*.xml`
+//! - wlr-* extensions (wlr-layer-shell, wlr-gamma-control, wlr-data-control): <https://github.com/swaywm/wlr-protocols>
+//!   `unstable/*.xml`
 //! - ext-*/xdg-output staging protocols: <https://github.com/wayland-mirror/wayland-protocols>
 //!   (`xdg_output` verified against this system's own
 //!   `/usr/share/wayland-protocols/unstable/xdg-output/xdg-output-unstable-v1.xml`, which matches)
