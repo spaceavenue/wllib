@@ -160,7 +160,7 @@ impl Connection {
   pub fn recv_with_fd<'a>(
     &self,
     buf: &'a mut [u8],
-  ) -> (Result<&'a [u8], WireError>, Option<libc::c_int>) {
+  ) -> (Result<&'a [u8], WireError>, Option<OwnedFd>) {
     let mut iov = [IoSliceMut::new(buf)];
     let mut space = [MaybeUninit::uninit(); cmsg_space!(ScmRights(1))];
     let mut cmsg = RecvAncillaryBuffer::new(&mut space);
@@ -171,7 +171,7 @@ impl Connection {
 
     for msg in cmsg.drain() {
       if let RecvAncillaryMessage::ScmRights(mut fds) = msg {
-        received_fd = fds.next().map(|f| f.as_raw_fd());
+        received_fd = fds.next();
       }
     }
 
