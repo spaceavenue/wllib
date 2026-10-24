@@ -22,7 +22,7 @@ use crate::wire::{Message, complete_message_len};
 const RECV_CARRY_CAP: usize = 4096;
 
 /// The default path/socket name to use in case `WAYLAND_DISPLAY` is unset.
-const DEFAULT_SOCK: &'static str = "wayland-0";
+const DEFAULT_SOCK: &str = "wayland-0";
 
 pub struct Connection {
   socket_fd: OwnedFd,

@@ -21,32 +21,32 @@ pub fn set_envp(envp: *const *const c_char) {
 /// Fetch an environment variable into a `StringOnStack`.
 pub fn get_env<const N: usize>(key: &str, out: &mut StringOnStack<N>) -> bool {
   let envp = ENVP.load(Ordering::Acquire);
-  if !envp.is_null() {
-    if scan_envp(envp, key, out) {
-      return true;
-    }
+  if !envp.is_null() && scan_envp(envp, key, out) {
+    return true;
   }
   scan_proc_environ(key, out)
 }
 
 fn scan_envp<const N: usize>(
-  cur: *const *const c_char,
+  mut cur: *const *const c_char,
   key: &str,
   out: &mut StringOnStack<N>,
 ) -> bool {
   let key_bytes = key.as_bytes();
   while !cur.is_null() && !unsafe { *cur }.is_null() {
-    let cstr = unsafe { CStr::from_ptr(cur.cast()) };
+    let cstr = unsafe { CStr::from_ptr(*cur) };
     let bytes = cstr.to_bytes();
-    if bytes.starts_with(key_bytes) && bytes.get(key_bytes.len()) == Some(&b'=') {
-      if let Ok(val) = str::from_utf8(&bytes[key_bytes.len() + 1..]) {
-        out.clear();
-        out.push(val);
-        return true;
-      }
+    if bytes.starts_with(key_bytes)
+      && bytes.get(key_bytes.len()) == Some(&b'=')
+      && let Ok(val) = str::from_utf8(&bytes[key_bytes.len() + 1..])
+    {
+      out.clear();
+      out.push(val);
+      return true;
     }
+    cur = unsafe { cur.add(1) };
   }
-  true
+  false
 }
 
 fn scan_proc_environ<const N: usize>(key: &str, out: &mut StringOnStack<N>) -> bool {

@@ -10,7 +10,6 @@
 /// Read a `u32` argument at `idx`. Returns 0 if `idx` is out of range rather than panicking, since
 /// wire data is untrusted input and this crate has no allocator to build a proper error path around
 /// every 4-byte read.
-
 #[must_use]
 pub fn read_u32(buf: &[u8], idx: usize) -> u32 {
   let Some(tail) = buf.get(idx..) else {

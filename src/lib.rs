@@ -1,6 +1,6 @@
+#![allow(clippy::result_large_err)]
 #![no_std]
 
-pub mod cli;
 pub mod dispatch;
 pub mod env;
 pub mod error;
