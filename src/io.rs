@@ -1,7 +1,8 @@
 //! File-descriptor write helpers.
 
-use rustix::fd::{AsFd, BorrowedFd};
+use rustix::fd::AsFd;
 use rustix::io::write;
+use rustix::stdio;
 
 use crate::error::SysError;
 
@@ -40,12 +41,12 @@ pub fn write_fd<Fd: AsFd>(fd: Fd, msg: impl AsRef<[u8]>, count: Option<usize>) -
 
 /// Writes the buffer to stderr.
 pub fn write_stderr(msg: impl AsRef<[u8]>) {
-  let fd = unsafe { BorrowedFd::borrow_raw(2) };
+  let fd = unsafe { stdio::stderr() };
   let _ = write_fd(fd, msg, None);
 }
 
 /// Writes the buffer to stdout.
 pub fn write_stdout(msg: impl AsRef<[u8]>) {
-  let fd = unsafe { BorrowedFd::borrow_raw(1) };
+  let fd = unsafe { stdio::stdout() };
   let _ = write_fd(fd, msg, None);
 }
