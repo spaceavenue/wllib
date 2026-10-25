@@ -11,18 +11,13 @@ use rustix::net::{
   sendmsg, socket_with,
 };
 
-use crate::env::get_env;
 use crate::error::{SysError, SysResultExt, WireError};
-use crate::fmt_lite::StringOnStack;
 use crate::wire::{Message, complete_message_len};
 
 /// Size of the leftover-message carry buffer `Connection` keeps for [`Connection::recv_framed`].
 /// Must be at least as large as any buffer a caller passes to `recv_framed`; a leftover can
 /// never exceed what was read into that buffer in the first place.
 const RECV_CARRY_CAP: usize = 4096;
-
-/// The default path/socket name to use in case `WAYLAND_DISPLAY` is unset.
-const DEFAULT_SOCK: &str = "wayland-0";
 
 pub struct Connection {
   socket_fd: OwnedFd,
@@ -32,34 +27,9 @@ pub struct Connection {
 }
 
 impl Connection {
-  /// Connect to the Wayland socket.
-  pub fn connect() -> Result<Self, WireError> {
-    let mut display = StringOnStack::<64>::new();
-    let mut runtime = StringOnStack::<64>::new();
-    let mut path = StringOnStack::<128>::new();
-
-    let found_display = get_env("WAYLAND_DISPLAY", &mut display);
-    let found_runtime = get_env("XDG_RUNTIME_DIR", &mut runtime);
-    let display_str = if found_display {
-      &display
-    } else {
-      DEFAULT_SOCK
-    };
-
-    if display_str.starts_with("/") {
-      path.push(display_str);
-    } else {
-      if !found_runtime {
-        return Err(WireError::Environment);
-      }
-      path.push(runtime);
-      if !&path.ends_with('/') {
-        path.push("/");
-      }
-      path.push(display_str);
-    }
-
-    let addr = SocketAddrUnix::new(path.as_c_str()).map_err(|_| WireError::Environment)?;
+  /// Connect to the Wayland socket at `socket_path`.
+  pub fn connect_to(socket_path: &str) -> Result<Self, WireError> {
+    let addr = SocketAddrUnix::new(socket_path).map_err(|_| WireError::InvalidPath)?;
 
     let socket_fd = socket_with(
       AddressFamily::UNIX,
@@ -114,14 +84,6 @@ impl Connection {
     Ok(())
   }
 
-  /// Convenience wrapper around [`Self::send`] that logs failures via
-  /// [`WireError::write_diagnostic`].
-  pub fn send_logged(&self, msg: &Message, fd: Option<&OwnedFd>) {
-    if let Err(e) = self.send(msg, fd) {
-      e.write_diagnostic();
-    }
-  }
-
   /// Read protocol data into `buf` and return what was received.
   pub fn recv<'a>(&self, buf: &'a mut [u8]) -> Result<&'a [u8], WireError> {
     let (_, bytes) = recv(&self.socket_fd, &mut *buf, RecvFlags::empty()).syserr("recv")?;
@@ -135,8 +97,7 @@ impl Connection {
   /// Like [`Self::recv`], but only hands back *complete* wire messages.
   pub fn recv_framed<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a [u8], WireError> {
     if buf.len() < RECV_CARRY_CAP {
-      // dont know what else to return here
-      return Err(WireError::Environment);
+      return Err(WireError::BufferTooSmall);
     }
 
     let carry_len = self.carry_len;

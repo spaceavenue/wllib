@@ -1,18 +1,11 @@
 //! Error types for the transport/protocol layer.
 
-use core::ffi::c_int;
-
 use crate::fmt_lite::StringOnStack;
-use crate::io::write_stderr;
 use crate::wire::{read_str, read_u32};
 
-unsafe extern "C" {
-  fn __errno_location() -> *mut c_int;
-}
-
-/// A failed libc call, captured with `errno` at the point of failure.
+/// A failed syscall, captured with `errno` at the point of failure.
 ///
-/// `call` is a fixed `&'static str` naming the syscall (e.g. `"mmap"`).
+/// `call` is a fixed `&'static str` naming the syscall (e.g. `"socket"`).
 #[derive(Clone, Copy)]
 pub struct SysError {
   pub call: &'static str,
@@ -20,13 +13,6 @@ pub struct SysError {
 }
 
 impl SysError {
-  /// Capture the current `errno`, tagged with the name of the call that just failed. Called
-  /// immediately after the failing libc call, before any other libc calls can clobber errno.
-  #[must_use]
-  pub fn last(call: &'static str) -> Self {
-    let errno = unsafe { *__errno_location() };
-    Self { call, errno }
-  }
   #[must_use]
   pub fn from_errno(call: &'static str, err: rustix::io::Errno) -> Self {
     Self {
@@ -64,6 +50,7 @@ pub struct ProtocolError {
   pub code: u32,
   pub message: StringOnStack<MESSAGE_CAP>,
 }
+
 impl ProtocolError {
   #[must_use]
   pub fn from(buf: &[u8], idx: usize) -> Self {
@@ -84,47 +71,15 @@ impl ProtocolError {
 /// Errors that can occur in the transport/protocol layer.
 #[derive(Clone, Copy)]
 pub enum WireError {
-  /// A libc syscall used by the transport failed.
+  /// A syscall used by the transport failed.
   Sys(SysError),
   /// The compositor sent a `wl_display::error` event, a fatal protocol violation. The
   /// connection should be treated as dead once this is observed.
   Protocol(ProtocolError),
-  /// `WAYLAND_DISPLAY` or `XDG_RUNTIME_DIR` wasn't set (or didn't fit the socket path buffer).
-  Environment,
+  /// The provided socket path was invalid or exceeded the maximum Unix socket path length.
+  InvalidPath,
+  /// The buffer was too small for framing messages.
+  BufferTooSmall,
   /// The compositor closed the connection (`recv` returned EOF).
   ConnectionClosed,
-}
-impl WireError {
-  /// Print a one-line, human-readable diagnostic to stderr.
-  pub fn write_diagnostic(&self) {
-    match self {
-      WireError::Sys(e) => {
-        let mut s = StringOnStack::<MESSAGE_CAP>::new();
-        s.push("[wllib] syscall failed: ")
-          .push(e.call)
-          .push(" (errno ")
-          .push(e.errno)
-          .push(")")
-          .push("\n");
-        write_stderr(s);
-      }
-      WireError::Protocol(p) => {
-        let mut s = StringOnStack::<MESSAGE_CAP>::new();
-        s.push("[wllib] wayland protocol error: object ")
-          .push(p.object_id)
-          .push(", code ")
-          .push(p.code)
-          .push(", message: ")
-          .push(p.message.as_str())
-          .push("\n");
-        write_stderr(s);
-      }
-      WireError::Environment => {
-        write_stderr("[wllib] WAYLAND_DISPLAY or XDG_RUNTIME_DIR not set\n");
-      }
-      WireError::ConnectionClosed => {
-        write_stderr("[wllib] connection closed by compositor\n");
-      }
-    }
-  }
 }
